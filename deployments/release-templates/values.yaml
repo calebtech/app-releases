@@ -4,6 +4,7 @@ environments:
     accountID: '123456789012' # dummy AWS account ID
     region: us-east-1
     clusterName: example-qe
+    # path: environments/qe/example-qe # Optional; release-repo folder for this env, defaults to environments/<name>/<clusterName>
     helmEnv: dev
     gitRepo: https://gitlab.com/example-org/release-repo.git
     branch: main # Optional field, defaults to 'main'

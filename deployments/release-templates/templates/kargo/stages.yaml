@@ -37,7 +37,7 @@ spec:
         - name: branch
           value: {{ $env.branch | default "main" }}
         - name: appVersionPath
-          value: {{ $env.name }}/{{ $env.clusterName }}/helm/{{ $app.name }}/version.yaml
+          value: {{ include "release-templates.envPath" $env }}/{{ $app.name }}/version.yaml
         - name: chartRepo
           value: {{ include "release-templates.chartRepo" (dict "app" $app "env" $env) }}
 {{- end }}
