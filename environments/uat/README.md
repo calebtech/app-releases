@@ -4,9 +4,9 @@ Placeholder for the UAT environment. Layout per cluster and stage:
 
 ```
 environments/uat/<cluster>/<stage>/<app>/
-├── version.yaml   # chart version, written by Kargo on promotion
-└── values.yaml    # Helm value overrides for this app in this stage
+├── Chart.yaml    # wrapper chart; dependencies[0].version is bumped by Kargo on promotion
+└── values.yaml   # Helm values, nested under the dependency's chart name
 ```
 
-Then add the environment to the release-templates values with
-`path: environments/uat/<cluster>/<stage>`.
+Copy an app folder from `environments/local/minikube/qe/` as a starting point, then add the
+environment to the release-templates values with `path: environments/uat/<cluster>/<stage>`.

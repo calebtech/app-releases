@@ -3,27 +3,23 @@
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
-{{- $name := printf "%s-%s" $app.name $env.fullname }}
-{{- $ns := include "release-templates.appNamespace" (dict "app" $app "root" $) }}
 metadata:
-  name: {{ $name }}
-  namespace: {{ $ns }}
+  name: {{ $app.name }}-{{ $env.fullname }}
+  namespace: {{ include "release-templates.appNamespace" (dict "app" $app "root" $) }}
   annotations:
     kargo.akuity.io/authorized-stage: {{ $app.name }}:{{ $env.fullname }}
 spec:
   project: {{ $app.name }}
-  sources:
-    - repoURL: {{ include "release-templates.chartRepo" (dict "app" $app "env" $env) }}
-      chart: {{ $app.chartName }}
-      targetRevision: {{ include "release-templates.targetRevision" (dict "app" $app "name" $name "namespace" $ns) | quote }}
-      helm:
-        releaseName: {{ $app.name }}
-        ignoreMissingValueFiles: true
-        valueFiles:
-          - $values/{{ include "release-templates.envPath" $env }}/{{ $app.name }}/values.yaml
-    - repoURL: {{ $env.gitRepo }}
-      targetRevision: {{ $env.branch | default "main" }}
-      ref: values
+  # Wrapper chart in the release repo: <env path>/<app>/{Chart.yaml,values.yaml}.
+  # The dependency version in Chart.yaml is what Kargo promotes, so the spec here never changes.
+  source:
+    repoURL: {{ $env.gitRepo }}
+    targetRevision: {{ $env.branch | default "main" }}
+    path: {{ include "release-templates.envPath" $env }}/{{ $app.name }}
+    helm:
+      releaseName: {{ $app.name }}
+      valueFiles:
+        - values.yaml
   destination:
     server: {{ $env.server }}
     namespace: {{ include "release-templates.destNamespace" (dict "app" $app "env" $env) }}

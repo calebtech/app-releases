@@ -1,1 +1,3 @@
-replicaCount: 1
+# Values for the podinfo dependency go under the chart name.
+podinfo:
+  replicaCount: 1

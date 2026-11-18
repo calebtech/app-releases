@@ -7,13 +7,9 @@ metadata:
   namespace: {{ $app.namespace }}
 spec:
   interval: {{ $.Values.kargo.warehouseInterval | quote }}
+  # Freight = chart version only. The release repo is not subscribed: Kargo commits to it on
+  # every promotion, and each of those commits would otherwise create new Freight.
   subscriptions:
-    {{- range $repo := (include "release-templates.gitRepos" $ | fromJsonArray) }}
-    - git:
-        repoURL: {{ $repo }}
-        branch: {{ (index $.Values.environments 0).branch | default "main" }}
-        strictSemvers: true
-    {{- end }}
     {{- $seenCharts := list }}
     {{- range $env := $.Values.environments }}
       {{- $chartRepo := printf "oci://%s/%s" (include "release-templates.chartRepo" (dict "app" $app "env" $env)) $app.chartName }}
