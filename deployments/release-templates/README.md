@@ -14,10 +14,23 @@ Targets **Argo CD v3.6 (argo-cd chart 10.18.x)** and **Kargo v1.12**.
 
 1. The `Warehouse` watches the chart in the OCI registry and the release git repo, and creates Freight.
 2. A `Stage` promotes Freight with the `PromotionTask`:
-   clone repo → write the chart version to `<env>/<cluster>/helm/<app>/version.yaml` → commit →
+   clone repo → write the chart version to `<env.path>/<app>/version.yaml` → commit →
    push (or open a PR and wait for it to merge, when `kargo.openPR: true`) → `argocd-update` sets the
    Application's `targetRevision` and syncs it.
-3. Values come from `<env>/<cluster>/helm/<app>/values.yaml` in the release repo.
+3. Values come from `<env.path>/<app>/values.yaml` in the release repo.
+
+`env.path` defaults to `environments/<env.name>/<env.clusterName>`. Release repo layout:
+
+```
+environments/
+├── local/minikube/          # environment / cluster
+│   ├── qe/podinfo/          # stage / app  →  version.yaml, values.yaml
+│   └── preprod/podinfo/
+└── uat/                     # placeholder
+```
+
+Kargo owns `targetRevision` after the first promotion. The chart reads it back from the live
+Application (`lookup`) so `helm upgrade` doesn't roll apps back to `chartVersion`.
 
 ## Test locally on minikube
 
@@ -25,7 +38,7 @@ Prereqs: minikube running, with Argo CD and Kargo installed from `devops/environ
 Argo CD needs `configs.params."application.namespaces": "*"`, which is already set there.
 
 1. Commit and push the seed files to `main` in `calebtech/app-releases`:
-   `local-qe/minikube/helm/podinfo/{version,values}.yaml` and `local-preprod/...`.
+   `environments/local/minikube/{qe,preprod}/podinfo/{version,values}.yaml` (already in this repo).
 2. Install, using a GitHub PAT with `repo` scope (Kargo pushes version bumps):
 
    ```bash

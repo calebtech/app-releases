@@ -3,9 +3,11 @@
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
+{{- $name := printf "%s-%s" $app.name $env.fullname }}
+{{- $ns := include "release-templates.appNamespace" (dict "app" $app "root" $) }}
 metadata:
-  name: {{ $app.name }}-{{ $env.fullname }}
-  namespace: {{ include "release-templates.appNamespace" (dict "app" $app "root" $) }}
+  name: {{ $name }}
+  namespace: {{ $ns }}
   annotations:
     kargo.akuity.io/authorized-stage: {{ $app.name }}:{{ $env.fullname }}
 spec:
@@ -13,12 +15,12 @@ spec:
   sources:
     - repoURL: {{ include "release-templates.chartRepo" (dict "app" $app "env" $env) }}
       chart: {{ $app.chartName }}
-      targetRevision: {{ $app.chartVersion | default "1.9.6" | quote }}
+      targetRevision: {{ include "release-templates.targetRevision" (dict "app" $app "name" $name "namespace" $ns) | quote }}
       helm:
         releaseName: {{ $app.name }}
         ignoreMissingValueFiles: true
         valueFiles:
-          - $values/{{ $env.name }}/{{ $env.clusterName }}/helm/{{ $app.name }}/values.yaml
+          - $values/{{ include "release-templates.envPath" $env }}/{{ $app.name }}/values.yaml
     - repoURL: {{ $env.gitRepo }}
       targetRevision: {{ $env.branch | default "main" }}
       ref: values
