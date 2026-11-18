@@ -1,0 +1,26 @@
+{{- range $app := $.Values.applications }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: {{ $app.name }}
+  namespace: {{ $.Values.argocd.namespace }}
+spec:
+  {{- if $.Values.argocd.appsInAnyNamespace }}
+  sourceNamespaces:
+    - {{ $app.namespace }}
+  {{- end }}
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  sourceRepos:
+    - '*'
+  destinations:
+    {{- range $env := $.Values.environments }}
+    - namespace: {{ include "release-templates.destNamespace" (dict "app" $app "env" $env) }}
+      server: {{ $env.server }}
+    {{- end }}
+{{- end }}

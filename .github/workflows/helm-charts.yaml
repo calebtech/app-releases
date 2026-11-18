@@ -1,0 +1,107 @@
+name: helm-charts
+
+# PR      -> lint + render every chart under deployments/
+# main    -> package + push charts whose version isn't in the registry yet
+# manual  -> same as main (Actions tab -> helm-charts -> Run workflow)
+#
+# To release: bump `version` in deployments/<chart>/Chart.yaml and merge.
+
+on:
+  pull_request:
+    paths:
+      - "deployments/**"
+      - ".github/workflows/helm-charts.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "deployments/**"
+      - ".github/workflows/helm-charts.yaml"
+  workflow_dispatch:
+
+concurrency:
+  group: helm-charts-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  HELM_VERSION: v3.20.2
+  # Docker Hub. For GHCR use: REGISTRY=ghcr.io, REGISTRY_PATH=ghcr.io/${{ github.repository_owner }}/charts
+  REGISTRY: registry-1.docker.io
+  REGISTRY_PATH: registry-1.docker.io/${{ vars.DOCKERHUB_NAMESPACE || 'calebtech' }}
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Lint and render charts
+        run: |
+          set -euo pipefail
+          for chart in deployments/*/; do
+            [ -f "$chart/Chart.yaml" ] || continue
+            echo "::group::$chart"
+            helm dependency build "$chart" >/dev/null 2>&1 || true
+
+            # Default values, plus every values-*.yaml and examples/*.yaml
+            for vf in "" "$chart"/values-*.yaml "$chart"/examples/*.yaml; do
+              [ -z "$vf" ] || [ -f "$vf" ] || continue
+              args=(--set secrets.create=false --set secrets.gitUsername=ci --set secrets.gitPassword=ci)
+              [ -n "$vf" ] && args+=(-f "$vf")
+              echo "--> helm lint/template ${vf:-<default values>}"
+              helm lint "$chart" "${args[@]}"
+              helm template ci "$chart" "${args[@]}" > /dev/null
+            done
+            echo "::endgroup::"
+          done
+
+  publish:
+    needs: lint
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Log in to registry
+        env:
+          REGISTRY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: echo "$REGISTRY_PASSWORD" | helm registry login "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
+
+      - name: Package and push new chart versions
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for chart in deployments/*/; do
+            [ -f "$chart/Chart.yaml" ] || continue
+            name=$(yq -r '.name' "$chart/Chart.yaml")
+            version=$(yq -r '.version' "$chart/Chart.yaml")
+            ref="oci://$REGISTRY_PATH/$name"
+
+            if helm show chart "$ref" --version "$version" >/dev/null 2>&1; then
+              echo "$name $version already in registry, skipping (bump Chart.yaml version to release)"
+              continue
+            fi
+
+            helm dependency build "$chart" >/dev/null 2>&1 || true
+            helm package "$chart" -d dist
+            helm push "dist/$name-$version.tgz" "oci://$REGISTRY_PATH"
+            echo "### Pushed \`$ref:$version\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: charts
+          path: dist/*.tgz
+          if-no-files-found: ignore

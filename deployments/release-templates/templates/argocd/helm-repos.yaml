@@ -1,0 +1,22 @@
+{{- range $repo := .Values.argocd.helmOciRepos }}
+---
+# Registers an OCI Helm registry with Argo CD (needed for chart sources without oci://)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: helm-oci-{{ $repo.name }}
+  namespace: {{ $.Values.argocd.namespace }}
+  labels:
+    argocd.argoproj.io/secret-type: repository
+stringData:
+  name: {{ $repo.name }}
+  type: helm
+  enableOCI: "true"
+  url: {{ $repo.url }}
+  {{- with $repo.username }}
+  username: {{ . }}
+  {{- end }}
+  {{- with $repo.password }}
+  password: {{ . }}
+  {{- end }}
+{{- end }}

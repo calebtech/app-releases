@@ -1,0 +1,22 @@
+{{- range $app := $.Values.applications }}
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Project
+metadata:
+  name: {{ $app.name }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: ProjectConfig
+metadata:
+  name: {{ $app.name }}
+  namespace: {{ $app.name }}
+spec:
+  promotionPolicies:
+  {{- range $env := $.Values.environments }}
+    - stageSelector:
+        name: {{ $env.fullname }}
+      autoPromotionEnabled: {{ $env.autoPromotionEnabled | default false }}
+  {{- end }}
+{{- end }}

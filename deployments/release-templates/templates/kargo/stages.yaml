@@ -1,0 +1,44 @@
+{{- range $app := $.Values.applications }}
+{{- range $env := $.Values.environments }}
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Stage
+metadata:
+  name: {{ $env.fullname }}
+  namespace: {{ $app.namespace }}
+  annotations:
+    kargo.akuity.io/color: {{ $env.color }}
+spec:
+  requestedFreight:
+  - origin:
+      kind: Warehouse
+      name: {{ $app.name }}
+    sources:
+      {{- if not $env.priorStages }}
+      direct: true
+      {{- else }}
+      stages:
+        {{- range $stage := $env.priorStages }}
+        - {{ $stage }}
+        {{- end }}
+      {{- end }}
+  promotionTemplate:
+    spec:
+      steps:
+      - task:
+          name: {{ $app.name }}
+        vars:
+        - name: argocdApp
+          value: {{ $app.name }}-{{ $env.fullname }}
+        - name: argocdAppNamespace
+          value: {{ include "release-templates.appNamespace" (dict "app" $app "root" $) }}
+        - name: gitRepo
+          value: {{ $env.gitRepo }}
+        - name: branch
+          value: {{ $env.branch | default "main" }}
+        - name: appVersionPath
+          value: {{ $env.name }}/{{ $env.clusterName }}/helm/{{ $app.name }}/version.yaml
+        - name: chartRepo
+          value: {{ include "release-templates.chartRepo" (dict "app" $app "env" $env) }}
+{{- end }}
+{{- end }}
