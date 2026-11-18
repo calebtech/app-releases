@@ -1,0 +1,116 @@
+# Example environments for every supported cluster auth method (dummy values).
+# Render: helm template rt . -f examples/cluster-access.yaml --set secrets.create=false
+environments:
+  - name: dev
+    fullname: dev-local
+    clusterName: local
+    gitRepo: https://gitlab.com/example-org/release-repo.git
+    color: yellow
+    server: https://kubernetes.default.svc   # in-cluster: no Secret created
+    chartRepo: registry.example.com/charts
+
+  - name: qe            # AWS EKS, Argo CD assumes an IAM role
+    fullname: qe-example-eks
+    clusterName: example-eks
+    accountID: '123456789012'
+    region: us-east-1
+    helmEnv: dev
+    gitRepo: https://gitlab.com/example-org/release-repo.git
+    color: orange
+    server: https://EXAMPLE0000000000000000000000000.gr7.us-east-1.eks.amazonaws.com
+    cluster:
+      provider: aws
+      aws:
+        roleARN: arn:aws:iam::123456789012:role/example-argocd-deployer
+        # clusterName: example-eks   # defaults to env.clusterName
+        # profile: default
+      tls:
+        caData: <base64-encoded-cluster-CA-certificate>
+    priorStages: [dev-local]
+
+  - name: staging       # GCP GKE, Workload Identity on the Argo CD service accounts
+    fullname: staging-example-gke
+    clusterName: example-gke
+    gitRepo: https://gitlab.com/example-org/release-repo.git
+    color: blue
+    server: https://203.0.113.10
+    chartRepo: us-docker.pkg.dev/example-project/charts
+    cluster:
+      provider: gcp
+      tls:
+        caData: <base64-encoded-cluster-CA-certificate>
+    priorStages: [qe-example-eks]
+
+  - name: uat           # Azure AKS, Entra workload identity
+    fullname: uat-example-aks
+    clusterName: example-aks
+    gitRepo: https://gitlab.com/example-org/release-repo.git
+    color: violet
+    server: https://example-aks-dns-00000000.hcp.westeurope.azmk8s.io:443
+    chartRepo: exampleacr.azurecr.io/charts
+    cluster:
+      provider: azure
+      azure:
+        loginMethod: workloadidentity   # workloadidentity | spn | msi
+        clientID: 00000000-0000-0000-0000-000000000000
+        tenantID: 11111111-1111-1111-1111-111111111111
+        # clientSecret: ""               # spn only, never commit
+      tls:
+        caData: <base64-encoded-cluster-CA-certificate>
+    priorStages: [staging-example-gke]
+
+  - name: edge          # Any cluster: service-account bearer token
+    fullname: edge-example-k3s
+    clusterName: example-k3s
+    gitRepo: https://gitlab.com/example-org/release-repo.git
+    color: gray
+    server: https://k3s.example.com:6443
+    chartRepo: registry.example.com/charts
+    cluster:
+      provider: token
+      bearerToken: <service-account-token>   # pass with --set, never commit
+      project: example-app                    # optional: scope cluster to an AppProject
+      namespaces: [example-app]               # optional: namespace-scoped access
+      clusterResources: false
+      tls:
+        caData: <base64-encoded-cluster-CA-certificate>
+    priorStages: [uat-example-aks]
+
+  - name: onprem        # Any cluster: client certificate
+    fullname: onprem-example-dc
+    clusterName: example-dc
+    gitRepo: https://gitlab.com/example-org/release-repo.git
+    color: brown
+    server: https://k8s.dc.example.com:6443
+    chartRepo: registry.example.com/charts
+    cluster:
+      provider: tls
+      tls:
+        caData: <base64-encoded-CA>
+        certData: <base64-encoded-client-cert>
+        keyData: <base64-encoded-client-key>
+    priorStages: [edge-example-k3s]
+
+  - name: prod          # Any cluster: custom exec plugin (e.g. OIDC via kubelogin)
+    fullname: prod-example-oidc
+    clusterName: example-oidc
+    gitRepo: https://gitlab.com/example-org/release-repo.git
+    color: red
+    server: https://k8s.prod.example.com
+    chartRepo: registry.example.com/charts
+    cluster:
+      provider: exec
+      exec:
+        command: kubelogin
+        args: [get-token, --oidc-issuer-url=https://idp.example.com, --oidc-client-id=argocd]
+        env: {}
+      tls:
+        caData: <base64-encoded-cluster-CA-certificate>
+    priorStages: [onprem-example-dc]
+
+applications:
+  - name: example-app
+    namespace: example-app
+    chartName: example-app
+    chartPath: example-app/helm
+    chartVersion: 1.0.0

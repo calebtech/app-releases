@@ -1,0 +1,32 @@
+{{- range $app := $.Values.applications }}
+{{- range $env := $.Values.environments }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ $app.name }}-{{ $env.fullname }}
+  namespace: {{ include "release-templates.appNamespace" (dict "app" $app "root" $) }}
+  annotations:
+    kargo.akuity.io/authorized-stage: {{ $app.name }}:{{ $env.fullname }}
+spec:
+  project: {{ $app.name }}
+  sources:
+    - repoURL: {{ include "release-templates.chartRepo" (dict "app" $app "env" $env) }}
+      chart: {{ $app.chartName }}
+      targetRevision: {{ $app.chartVersion | default "1.9.6" | quote }}
+      helm:
+        releaseName: {{ $app.name }}
+        ignoreMissingValueFiles: true
+        valueFiles:
+          - $values/{{ $env.name }}/{{ $env.clusterName }}/helm/{{ $app.name }}/values.yaml
+    - repoURL: {{ $env.gitRepo }}
+      targetRevision: {{ $env.branch | default "main" }}
+      ref: values
+  destination:
+    server: {{ $env.server }}
+    namespace: {{ include "release-templates.destNamespace" (dict "app" $app "env" $env) }}
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+{{- end }}
+{{- end }}

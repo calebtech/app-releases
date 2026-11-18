@@ -1,0 +1,80 @@
+{{- range $app := $.Values.applications }}
+{{- $openPR := $.Values.kargo.openPR }}
+{{- if hasKey $app "openPR" }}{{- $openPR = $app.openPR }}{{- end }}
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: PromotionTask
+metadata:
+  name: {{ $app.name }}
+  namespace: {{ $app.namespace }}
+spec:
+  vars:
+  - name: chartName
+    value: {{ $app.chartName }}
+  - name: gitRepo # populated from stage
+  - name: branch # populated from stage
+  - name: appVersionPath # populated from stage
+  - name: chartRepo # populated from stage
+  - name: argocdApp # populated from stage
+  - name: argocdAppNamespace # populated from stage
+  steps:
+  - uses: git-clone
+    config:
+      repoURL: ${{`{{ vars.gitRepo }}`}}
+      checkout:
+      - branch: ${{`{{ vars.branch }}`}}
+        path: ./src
+  - uses: yaml-update
+    as: update-version
+    config:
+      path: ./src/${{`{{ vars.appVersionPath }}`}}
+      updates:
+      - key: version
+        value: ${{`{{ chartFrom("oci://" + vars.chartRepo + "/" + vars.chartName).Version }}`}}
+  - uses: git-commit
+    config:
+      path: ./src
+      message: ${{`{{ task.outputs['update-version'].commitMessage }}`}}
+  {{- if $openPR }}
+  - uses: git-push
+    as: push
+    config:
+      path: ./src
+      generateTargetBranch: true
+  - uses: git-open-pr
+    as: open-pr
+    config:
+      repoURL: ${{`{{ vars.gitRepo }}`}}
+      sourceBranch: ${{`{{ task.outputs.push.branch }}`}}
+      targetBranch: ${{`{{ vars.branch }}`}}
+      title: ${{`{{ vars.argocdApp }}`}} - ${{`{{ task.outputs['update-version'].commitMessage }}`}}
+  - uses: git-wait-for-pr
+    as: wait-for-pr
+    config:
+      repoURL: ${{`{{ vars.gitRepo }}`}}
+      prNumber: ${{`{{ task.outputs['open-pr'].prNumber }}`}}
+  {{- else }}
+  # Direct push to the branch (no PR) - handy for local testing.
+  - uses: git-push
+    as: push
+    config:
+      path: ./src
+  {{- end }}
+  - uses: yaml-parse
+    as: get-version
+    config:
+      path: ./src/${{`{{ vars.appVersionPath }}`}}
+      outputs:
+      - name: version
+        fromExpression: version
+  - uses: argocd-update
+    config:
+      apps:
+      - name: ${{`{{ vars.argocdApp }}`}}
+        namespace: ${{`{{ vars.argocdAppNamespace }}`}}
+        sources:
+        - repoURL: ${{`{{ vars.chartRepo }}`}}
+          chart: ${{`{{ vars.chartName }}`}}
+          desiredRevision: ${{`{{ task.outputs['get-version'].version }}`}}
+          updateTargetRevision: true
+{{- end }}

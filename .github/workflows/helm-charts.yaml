@@ -1,0 +1,143 @@
+name: helm-charts
+
+# push (any branch) -> build: lint, render and package every chart under deployments/
+# pull request      -> build + publish a prerelease, e.g. 0.2.0-pr.12.34 (unique per run)
+# push to main      -> build + publish the real version from Chart.yaml, if not in GHCR yet
+# manual            -> same as push for the selected branch
+#
+# To release: bump `version` in deployments/<chart>/Chart.yaml, open a PR, test the
+# prerelease, merge. Prereleases are ignored by semver ranges like ^0.2.0, so Kargo and
+# `helm install` without --version won't pick them up by accident.
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "deployments/**"
+      - ".github/workflows/helm-charts.yaml"
+  pull_request:
+    paths:
+      - "deployments/**"
+      - ".github/workflows/helm-charts.yaml"
+  workflow_dispatch:
+
+concurrency:
+  group: helm-charts-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  HELM_VERSION: v3.20.2
+  # GitHub Container Registry. Charts land at oci://ghcr.io/<owner>/charts/<chart>
+  REGISTRY: ghcr.io
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Lint and render charts
+        run: |
+          set -euo pipefail
+          for chart in deployments/*/; do
+            [ -f "$chart/Chart.yaml" ] || continue
+            echo "::group::$chart"
+            helm dependency build "$chart" >/dev/null 2>&1 || true
+
+            # Default values, plus every values-*.yaml and examples/*.yaml
+            for vf in "" "$chart"/values-*.yaml "$chart"/examples/*.yaml; do
+              [ -z "$vf" ] || [ -f "$vf" ] || continue
+              args=(--set secrets.create=false --set secrets.gitUsername=ci --set secrets.gitPassword=ci)
+              [ -n "$vf" ] && args+=(-f "$vf")
+              echo "--> helm lint/template ${vf:-<default values>}"
+              helm lint "$chart" "${args[@]}"
+              helm template ci "$chart" "${args[@]}" > /dev/null
+            done
+            echo "::endgroup::"
+          done
+
+      - name: Package charts
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for chart in deployments/*/; do
+            [ -f "$chart/Chart.yaml" ] || continue
+            helm package "$chart" -d dist
+          done
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: charts-${{ github.run_number }}
+          path: dist/*.tgz
+
+  publish:
+    needs: build
+    # PRs from forks get a read-only token, so they only build.
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # push to GHCR with GITHUB_TOKEN
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Set registry path
+        # GHCR paths must be lowercase
+        run: echo "REGISTRY_PATH=$REGISTRY/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/charts" >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR
+        env:
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$REGISTRY_PASSWORD" | helm registry login "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
+
+      - name: Package and push
+        env:
+          IS_PR: ${{ github.event_name == 'pull_request' }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for chart in deployments/*/; do
+            [ -f "$chart/Chart.yaml" ] || continue
+            name=$(yq -r '.name' "$chart/Chart.yaml")
+            base=$(yq -r '.version' "$chart/Chart.yaml")
+            ref="oci://$REGISTRY_PATH/$name"
+
+            if [ "$IS_PR" = "true" ]; then
+              # Unique, sortable prerelease per run
+              version="$base-pr.$PR_NUMBER.$GITHUB_RUN_NUMBER"
+            else
+              version="$base"
+              if helm show chart "$ref" --version "$version" >/dev/null 2>&1; then
+                echo "$name $version already in GHCR, skipping (bump Chart.yaml version to release)"
+                continue
+              fi
+            fi
+
+            helm dependency build "$chart" >/dev/null 2>&1 || true
+            helm package "$chart" -d dist --version "$version"
+            helm push "dist/$name-$version.tgz" "oci://$REGISTRY_PATH"
+
+            {
+              echo "### Pushed \`$name:$version\` (commit ${HEAD_SHA::7})"
+              echo '```bash'
+              echo "helm upgrade --install $name $ref --version $version -n argocd -f <values.yaml>"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          done

@@ -1,0 +1,51 @@
+# Local minikube test: both "environments" run on the in-cluster API server,
+# separated by namespace suffix. Uses the public podinfo OCI chart, so no ECR/AWS needed.
+#
+#   helm upgrade --install release-templates . -n argocd -f values-local.yaml \
+#     --set secrets.gitUsername=<github-user> --set secrets.gitPassword=<github-PAT>
+environments:
+  - name: local-qe
+    fullname: local-qe-minikube
+    clusterName: minikube
+    gitRepo: https://github.com/calebtech/app-releases.git
+    branch: main
+    color: yellow
+    server: https://kubernetes.default.svc
+    chartRepo: ghcr.io/stefanprodan/charts
+    namespaceSuffix: -qe
+    autoPromotionEnabled: true
+  - name: local-preprod
+    fullname: local-preprod-minikube
+    clusterName: minikube
+    gitRepo: https://github.com/calebtech/app-releases.git
+    branch: main
+    color: green
+    server: https://kubernetes.default.svc
+    chartRepo: ghcr.io/stefanprodan/charts
+    namespaceSuffix: -preprod
+    autoPromotionEnabled: false
+    priorStages:
+      - local-qe-minikube
+
+applications:
+  - name: podinfo
+    namespace: podinfo
+    chartName: podinfo
+    chartVersion: 6.9.0
+    chartVersionConstraint: ^6.0.0
+
+argocd:
+  namespace: argocd
+  appsInAnyNamespace: true
+  helmOciRepos:
+    - name: stefanprodan
+      url: ghcr.io/stefanprodan/charts
+
+kargo:
+  warehouseInterval: 1m
+  openPR: false # push straight to main locally; no PR to merge
+
+secrets:
+  create: true
+  gitUsername: ""
+  gitPassword: ""

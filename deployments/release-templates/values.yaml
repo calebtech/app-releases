@@ -1,0 +1,72 @@
+environments:
+  - name: qe
+    fullname: qe-example-qe # concat(.name, '-', .clusterName)
+    accountID: '123456789012' # dummy AWS account ID
+    region: us-east-1
+    clusterName: example-qe
+    helmEnv: dev
+    gitRepo: https://gitlab.com/example-org/release-repo.git
+    branch: main # Optional field, defaults to 'main'
+    color: yellow
+    server: https://kubernetes.default.svc
+    autoPromotionEnabled: false # Optional field, defaults to false
+  - name: preprod
+    fullname: preprod-example-preprod # concat(.name, '-', .clusterName)
+    accountID: '123456789012' # dummy AWS account ID
+    region: us-east-1
+    roleARN: example-preprod-cluster-role
+    clusterName: example-preprod
+    helmEnv: dev
+    gitRepo: https://gitlab.com/example-org/release-repo.git
+    branch: main # Optional field, defaults to 'main'
+    color: green
+    server: https://EXAMPLE0000000000000000000000000.gr7.us-east-1.eks.amazonaws.com
+    # -- How Argo CD authenticates to this cluster. Providers: aws | gcp | azure | token | tls | exec | in-cluster.
+    # See examples/cluster-access.yaml for every provider. (Legacy: accountID + roleARN + caData without
+    # a cluster block still means aws.) In-cluster servers never get a cluster Secret.
+    cluster:
+      provider: aws
+      # create: true               # false = cluster Secret managed elsewhere (e.g. External Secrets)
+      # aws:
+      #   roleARN: arn:aws:iam::123456789012:role/example-preprod-cluster-role  # defaults to accountID + roleARN
+      #   profile: ""
+      tls:
+        caData: <base64-encoded-cluster-CA-certificate>
+      # project: example-app        # optional: scope this cluster to an AppProject
+      # namespaces: [example-app]   # optional: namespace-scoped access
+      # clusterResources: false
+    priorStages: # List of .fullname
+      - qe-example-qe
+applications:
+  - name: example-app
+    chartPath: example-app/helm
+    chartName: example-app
+    namespace: example-app # must equal name (Kargo project namespace = project name)
+    chartVersion: 1.9.6 # initial targetRevision; Kargo updates it on promotion
+    # chartVersionConstraint: ^1.0.0
+    # chartRepo: ""     # override the ECR repo for this app (no oci:// prefix)
+    # openPR: true      # override kargo.openPR for this app
+
+secrets:
+  # -- Create Argo CD repo + Kargo git credential Secrets (one pair per unique gitRepo per app).
+  # Pass credentials with --set / a secret values file; never commit them.
+  create: true
+  gitUsername: ""
+  gitPassword: ""
+
+argocd:
+  namespace: argocd
+  # -- Create Applications in each app's namespace (Argo CD needs configs.params."application.namespaces").
+  # false = create them in argocd.namespace.
+  appsInAnyNamespace: true
+  # -- OCI Helm registries to register with Argo CD (url without oci://)
+  helmOciRepos: []
+  #  - name: ecr-dev
+  #    url: 123456789012.dkr.ecr.us-east-1.amazonaws.com
+  #    username: AWS
+  #    password: <token>
+
+kargo:
+  warehouseInterval: 10s
+  # -- true: push a branch, open a PR and wait for merge. false: push straight to the env branch.
+  openPR: true

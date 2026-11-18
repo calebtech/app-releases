@@ -1,0 +1,27 @@
+{{- range $app := $.Values.applications }}
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Warehouse
+metadata:
+  name: {{ $app.name }}
+  namespace: {{ $app.namespace }}
+spec:
+  interval: {{ $.Values.kargo.warehouseInterval | quote }}
+  subscriptions:
+    {{- range $repo := (include "release-templates.gitRepos" $ | fromJsonArray) }}
+    - git:
+        repoURL: {{ $repo }}
+        branch: {{ (index $.Values.environments 0).branch | default "main" }}
+        strictSemvers: true
+    {{- end }}
+    {{- $seenCharts := list }}
+    {{- range $env := $.Values.environments }}
+      {{- $chartRepo := printf "oci://%s/%s" (include "release-templates.chartRepo" (dict "app" $app "env" $env)) $app.chartName }}
+      {{- if not (has $chartRepo $seenCharts) }}
+    - chart:
+        repoURL: {{ $chartRepo }}
+        semverConstraint: {{ $app.chartVersionConstraint | default "^1.0.0" | quote }}
+        {{- $seenCharts = append $seenCharts $chartRepo }}
+      {{- end }}
+    {{- end }}
+{{- end }}

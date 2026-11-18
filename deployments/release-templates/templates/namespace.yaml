@@ -1,0 +1,11 @@
+{{- include "release-templates.validate" . }}
+{{- range $app := $.Values.applications }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $app.namespace }}
+  labels:
+    name: {{ $app.namespace }}
+    kargo.akuity.io/project: "true"
+{{- end }}
