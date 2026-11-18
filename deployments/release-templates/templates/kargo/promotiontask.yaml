@@ -2,6 +2,8 @@
 {{- $openPR := $.Values.kargo.openPR }}
 {{- if hasKey $app "openPR" }}{{- $openPR = $app.openPR }}{{- end }}
 ---
+# Promotion = a git commit that bumps the chart dependency version in the env's wrapper chart
+# (<env path>/<app>/Chart.yaml). Argo CD deploys that folder from git, so git is the source of truth.
 apiVersion: kargo.akuity.io/v1alpha1
 kind: PromotionTask
 metadata:
@@ -13,7 +15,7 @@ spec:
     value: {{ $app.chartName }}
   - name: gitRepo # populated from stage
   - name: branch # populated from stage
-  - name: appVersionPath # populated from stage
+  - name: appPath # populated from stage: <env path>/<app>
   - name: chartRepo # populated from stage
   - name: argocdApp # populated from stage
   - name: argocdAppNamespace # populated from stage
@@ -24,17 +26,19 @@ spec:
       checkout:
       - branch: ${{`{{ vars.branch }}`}}
         path: ./src
-  - uses: yaml-update
-    as: update-version
+  - uses: helm-update-chart
+    as: update-chart
     config:
-      path: ./src/${{`{{ vars.appVersionPath }}`}}
-      updates:
-      - key: version
-        value: ${{`{{ chartFrom("oci://" + vars.chartRepo + "/" + vars.chartName).Version }}`}}
+      path: ./src/${{`{{ vars.appPath }}`}}
+      charts:
+      - repository: oci://${{`{{ vars.chartRepo }}`}}
+        name: ${{`{{ vars.chartName }}`}}
+        version: ${{`{{ chartFrom("oci://" + vars.chartRepo + "/" + vars.chartName).Version }}`}}
   - uses: git-commit
+    as: commit
     config:
       path: ./src
-      message: ${{`{{ task.outputs['update-version'].commitMessage }}`}}
+      message: ${{`{{ task.outputs['update-chart'].commitMessage }}`}}
   {{- if $openPR }}
   - uses: git-push
     as: push
@@ -47,7 +51,7 @@ spec:
       repoURL: ${{`{{ vars.gitRepo }}`}}
       sourceBranch: ${{`{{ task.outputs.push.branch }}`}}
       targetBranch: ${{`{{ vars.branch }}`}}
-      title: ${{`{{ vars.argocdApp }}`}} - ${{`{{ task.outputs['update-version'].commitMessage }}`}}
+      title: ${{`{{ vars.argocdApp }}`}} - ${{`{{ task.outputs['update-chart'].commitMessage }}`}}
   - uses: git-wait-for-pr
     as: wait-for-pr
     config:
@@ -60,21 +64,18 @@ spec:
     config:
       path: ./src
   {{- end }}
-  - uses: yaml-parse
-    as: get-version
-    config:
-      path: ./src/${{`{{ vars.appVersionPath }}`}}
-      outputs:
-      - name: version
-        fromExpression: version
+  # Sync the app and wait until Argo CD has deployed the promoted commit.
+  # targetRevision stays on the branch; desiredRevision is only used for the health check.
   - uses: argocd-update
     config:
       apps:
       - name: ${{`{{ vars.argocdApp }}`}}
         namespace: ${{`{{ vars.argocdAppNamespace }}`}}
         sources:
-        - repoURL: ${{`{{ vars.chartRepo }}`}}
-          chart: ${{`{{ vars.chartName }}`}}
-          desiredRevision: ${{`{{ task.outputs['get-version'].version }}`}}
-          updateTargetRevision: true
+        - repoURL: ${{`{{ vars.gitRepo }}`}}
+          {{- if $openPR }}
+          desiredRevision: ${{`{{ task.outputs['wait-for-pr'].commit }}`}}
+          {{- else }}
+          desiredRevision: ${{`{{ task.outputs.push.commit }}`}}
+          {{- end }}
 {{- end }}

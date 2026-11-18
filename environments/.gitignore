@@ -1,0 +1,4 @@
+# Argo CD runs `helm dependency build`; Kargo only rewrites Chart.yaml, so a committed
+# Chart.lock would go stale on every promotion.
+Chart.lock
+charts/

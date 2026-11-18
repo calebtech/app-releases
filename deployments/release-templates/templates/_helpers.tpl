@@ -66,20 +66,3 @@ Usage: include "release-templates.envPath" $env
 {{- .path | default (printf "environments/%s/%s" .name .clusterName) | trimSuffix "/" -}}
 {{- end }}
 
-{{/*
-Chart version for an Application's chart source. Kargo owns this after the first
-promotion, so reuse the live value; Helm 3 replaces the whole sources array on any
-change, which would otherwise roll the app back to app.chartVersion.
-Falls back to app.chartVersion on first install and under helm template / --dry-run.
-Usage: include "release-templates.targetRevision" (dict "app" $app "name" $name "namespace" $ns)
-*/}}
-{{- define "release-templates.targetRevision" -}}
-{{- $live := lookup "argoproj.io/v1alpha1" "Application" .namespace .name }}
-{{- $rev := "" }}
-{{- range $src := (dig "spec" "sources" list $live) }}
-{{- if and (not $rev) (eq ($src.chart | default "") $.app.chartName) }}
-{{- $rev = $src.targetRevision | default "" }}
-{{- end }}
-{{- end }}
-{{- $rev | default $.app.chartVersion | default "1.9.6" -}}
-{{- end }}

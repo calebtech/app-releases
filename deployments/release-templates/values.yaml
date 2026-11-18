@@ -43,7 +43,6 @@ applications:
     chartPath: example-app/helm
     chartName: example-app
     namespace: example-app # must equal name (Kargo project namespace = project name)
-    chartVersion: 1.9.6 # initial targetRevision; Kargo updates it on promotion
     # chartVersionConstraint: ^1.0.0
     # chartRepo: ""     # override the ECR repo for this app (no oci:// prefix)
     # openPR: true      # override kargo.openPR for this app

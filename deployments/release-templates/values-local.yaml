@@ -33,7 +33,6 @@ applications:
   - name: podinfo
     namespace: podinfo
     chartName: podinfo
-    chartVersion: 6.9.0
     chartVersionConstraint: ^6.0.0
 
 argocd:

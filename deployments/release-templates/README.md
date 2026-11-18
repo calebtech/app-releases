@@ -12,33 +12,37 @@ Targets **Argo CD v3.6 (argo-cd chart 10.18.x)** and **Kargo v1.12**.
 
 ## How a promotion works
 
-1. The `Warehouse` watches the chart in the OCI registry and the release git repo, and creates Freight.
-2. A `Stage` promotes Freight with the `PromotionTask`:
-   clone repo → write the chart version to `<env.path>/<app>/version.yaml` → commit →
-   push (or open a PR and wait for it to merge, when `kargo.openPR: true`) → `argocd-update` sets the
-   Application's `targetRevision` and syncs it.
-3. Values come from `<env.path>/<app>/values.yaml` in the release repo.
-
-`env.path` defaults to `environments/<env.name>/<env.clusterName>`. Release repo layout:
+Git is the source of truth for what runs where. Each app × env is a small **wrapper chart** in the
+release repo whose only dependency is the app chart, pinned to an exact version:
 
 ```
 environments/
-├── local/minikube/          # environment / cluster
-│   ├── qe/podinfo/          # stage / app  →  version.yaml, values.yaml
+├── local/minikube/            # environment / cluster
+│   ├── qe/podinfo/            # stage / app
+│   │   ├── Chart.yaml         #   dependencies: podinfo @ 6.17.0   <- Kargo bumps this
+│   │   └── values.yaml        #   podinfo: { ... }                  <- values nested under the chart name
 │   └── preprod/podinfo/
-└── uat/                     # placeholder
+└── uat/                       # placeholder
 ```
 
-Kargo owns `targetRevision` after the first promotion. The chart reads it back from the live
-Application (`lookup`) so `helm upgrade` doesn't roll apps back to `chartVersion`.
+1. The `Warehouse` watches the chart in the OCI registry and creates Freight per new version.
+2. A `Stage` promotes Freight with the `PromotionTask`:
+   clone repo → `helm-update-chart` bumps the dependency in `<env.path>/<app>/Chart.yaml` → commit →
+   push (or open a PR and wait for it to merge, when `kargo.openPR: true`) → `argocd-update` syncs the
+   Application and waits until it has deployed that commit.
+3. The Argo CD `Application` points at `<env.path>/<app>` on the env branch. Its spec never changes,
+   so `helm upgrade` of this chart can't roll an app back, and the deployed version is always the one in git.
+
+`env.path` defaults to `environments/<env.name>/<env.clusterName>`. `Chart.lock` and `charts/` are
+gitignored; Argo CD runs `helm dependency build` itself.
 
 ## Test locally on minikube
 
 Prereqs: minikube running, with Argo CD and Kargo installed from `devops/environments/local-dev`.
 Argo CD needs `configs.params."application.namespaces": "*"`, which is already set there.
 
-1. Commit and push the seed files to `main` in `calebtech/app-releases`:
-   `environments/local/minikube/{qe,preprod}/podinfo/{version,values}.yaml` (already in this repo).
+1. The wrapper charts `environments/local/minikube/{qe,preprod}/podinfo/{Chart,values}.yaml`
+   must be on `main` in `calebtech/app-releases` (already in this repo).
 2. Install, using a GitHub PAT with `repo` scope (Kargo pushes version bumps):
 
    ```bash
@@ -62,7 +66,6 @@ Argo CD needs `configs.params."application.namespaces": "*"`, which is already s
 | Value | Default | Notes |
 |---|---|---|
 | `applications[].name` / `namespace` | — | Must be equal (the Kargo project namespace is the project name) |
-| `applications[].chartVersion` | `1.9.6` | Initial `targetRevision`; Kargo changes it on promotion |
 | `applications[].chartRepo`, `environments[].chartRepo` | ECR path | Override the chart registry (no `oci://`) |
 | `environments[].namespaceSuffix` | `""` | Separates envs that share one cluster |
 | `argocd.appsInAnyNamespace` | `true` | `false` puts Applications in `argocd.namespace` |

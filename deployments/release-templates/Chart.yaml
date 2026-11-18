@@ -2,5 +2,5 @@ apiVersion: v2
 name: release-templates
 description: Argo CD Applications/AppProjects and Kargo Project, Warehouse, Stages and PromotionTask for promoting apps across environments.
 type: application
-version: 0.2.0
-appVersion: "0.2.0"
+version: 0.3.0
+appVersion: "0.3.0"

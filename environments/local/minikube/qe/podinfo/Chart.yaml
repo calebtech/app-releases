@@ -1,0 +1,9 @@
+# Wrapper chart for podinfo in local/minikube/qe.
+# Kargo promotes by bumping dependencies[0].version (helm-update-chart); Argo CD deploys this folder.
+apiVersion: v2
+name: podinfo
+version: 0.1.0
+dependencies:
+  - name: podinfo
+    repository: oci://ghcr.io/stefanprodan/charts
+    version: 6.17.0
